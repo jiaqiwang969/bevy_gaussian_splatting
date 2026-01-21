@@ -1,0 +1,21 @@
+[package]
+name = "microscope_viewer"
+version = "0.1.0"
+edition = "2021"
+default-run = "microscope_viewer"
+
+[dependencies]
+bevy = "0.17"
+# 使用原版bevy_gaussian_splatting，保持100%质量
+bevy_gaussian_splatting = "6.0"
+reqwest = { version = "0.12", features = ["multipart", "json", "blocking"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rfd = "0.15"  # 原生文件对话框
+tokio = { version = "1", features = ["rt", "sync"] }  # 异步运行时
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

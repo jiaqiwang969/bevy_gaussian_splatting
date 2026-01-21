@@ -1,0 +1,4 @@
+target/
+*.ply
+bevy_gaussian_splatting_patched/
+cache/
