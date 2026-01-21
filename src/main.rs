@@ -420,9 +420,6 @@ fn update_status_display(
         UploadStatus::Downloading { progress } => {
             info!("📥 下载PLY... {:.0}%", progress * 100.0);
         },
-        UploadStatus::Pruning { progress } => {
-            info!("✂️  LightGaussian剪枝中... {:.0}%", progress * 100.0);
-        },
         UploadStatus::Completed { ref ply_path, total_time } => {
             info!("✅ 完成！总耗时: {:.2}秒", total_time);
             info!("📁 PLY文件: {:?}", ply_path);
