@@ -455,25 +455,61 @@ fn handle_upload_completion(
             .unwrap_or("generated.ply")
             .to_string();
 
-        info!("🔄 加载新的3DGS: {}", ply_name);
+        // 强制重新加载：添加时间戳参数避免缓存
+        // Bevy的asset_server会缓存已加载的资源，需要使用不同的路径
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
 
-        commands.spawn((
-            PlanarGaussian3dHandle(asset_server.load(ply_name)),
-            // 优化的CloudSettings：在不损失质量的前提下降低GPU占用
-            CloudSettings {
-                // 保持100%质量，不降低点云数量
-                global_scale: 1.0,
-                // 全局不透明度：保持默认
-                global_opacity: 1.0,
-                // 启用自适应半径：根据距离动态调整渲染质量
-                opacity_adaptive_radius: true,
-                ..default()
-            },
-            Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::PI)),
-            Visibility::default(),
-            MainCloud,
-            Name::new("gaussian_cloud_generated"),
-        ));
+        // 复制文件到带时间戳的新文件名，确保Bevy重新加载
+        let new_ply_name = format!("loaded_{}.ply", timestamp);
+        let src_path = format!("assets/{}", ply_name);
+        let dst_path = format!("assets/{}", new_ply_name);
+
+        if let Err(e) = std::fs::copy(&src_path, &dst_path) {
+            error!("❌ 复制PLY文件失败: {}", e);
+            // 回退到原文件名
+            info!("🔄 加载3DGS: {}", ply_name);
+            commands.spawn((
+                PlanarGaussian3dHandle(asset_server.load(ply_name)),
+                CloudSettings {
+                    global_scale: 1.0,
+                    global_opacity: 1.0,
+                    opacity_adaptive_radius: true,
+                    ..default()
+                },
+                Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::PI)),
+                Visibility::default(),
+                MainCloud,
+                Name::new("gaussian_cloud_generated"),
+            ));
+        } else {
+            info!("🔄 加载新的3DGS: {} (从 {})", new_ply_name, ply_name);
+            commands.spawn((
+                PlanarGaussian3dHandle(asset_server.load(new_ply_name.clone())),
+                CloudSettings {
+                    global_scale: 1.0,
+                    global_opacity: 1.0,
+                    opacity_adaptive_radius: true,
+                    ..default()
+                },
+                Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::PI)),
+                Visibility::default(),
+                MainCloud,
+                Name::new("gaussian_cloud_generated"),
+            ));
+
+            // 清理旧的临时文件（保留最新的）
+            if let Ok(entries) = std::fs::read_dir("assets") {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.starts_with("loaded_") && name.ends_with(".ply") && name != new_ply_name {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
+            }
+        }
 
         // 重置相机以便重新居中
         orbit.has_auto_centered = false;
