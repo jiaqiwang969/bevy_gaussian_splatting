@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use std::process::Command;
 use serde::Deserialize;
 
 /// 上传状态
@@ -12,6 +13,7 @@ pub enum UploadStatus {
     Uploading { progress: f32 },
     Processing { stage: String },
     Downloading { progress: f32 },
+    Pruning { progress: f32 },  // 新增：剪枝状态
     Completed { ply_path: PathBuf, total_time: f32 },
     Error { message: String },
 }
@@ -271,12 +273,86 @@ fn upload_and_process(upload_state: ImageUploadState, image_path: PathBuf) {
         return;
     }
 
+    // ========================================
+    // LightGaussian风格剪枝
+    // ========================================
+    info!("✂️  开始LightGaussian剪枝 (保留50%)...");
+    upload_state.set_status(UploadStatus::Pruning { progress: 0.0 });
+
+    let pruned_path = PathBuf::from("assets/generated_pruned.ply");
+    let prune_result = prune_ply(&output_path, &pruned_path, 0.5);
+
+    match prune_result {
+        Ok(stats) => {
+            info!("✅ 剪枝完成！压缩比: {:.2}x, 节省: {:.1}%",
+                  stats.compression_ratio,
+                  (1.0 - 1.0/stats.compression_ratio) * 100.0);
+            upload_state.set_status(UploadStatus::Pruning { progress: 1.0 });
+        }
+        Err(e) => {
+            warn!("⚠️  剪枝失败，使用原始PLY: {}", e);
+            // 剪枝失败不影响主流程，继续使用原始PLY
+        }
+    }
+
     let total_time = start_time.elapsed().as_secs_f32();
     info!("🎉 完成！总耗时: {:.2}秒", total_time);
-    info!("📁 PLY文件已保存到: {:?}", output_path);
+
+    // 优先使用剪枝后的文件，如果不存在则使用原始文件
+    let final_path = if pruned_path.exists() {
+        info!("📁 使用剪枝后的PLY: {:?}", pruned_path);
+        pruned_path
+    } else {
+        info!("📁 使用原始PLY: {:?}", output_path);
+        output_path
+    };
 
     upload_state.set_status(UploadStatus::Completed {
-        ply_path: output_path,
+        ply_path: final_path,
         total_time,
     });
+}
+
+/// 剪枝统计信息
+struct PruneStats {
+    input_size_mb: f32,
+    output_size_mb: f32,
+    compression_ratio: f32,
+}
+
+/// 调用Python剪枝脚本
+fn prune_ply(input_path: &PathBuf, output_path: &PathBuf, keep_ratio: f32) -> Result<PruneStats, String> {
+    // 获取输入文件大小
+    let input_size = std::fs::metadata(input_path)
+        .map_err(|e| format!("无法读取输入文件: {}", e))?
+        .len() as f32 / 1_000_000.0;
+
+    // 调用Python剪枝脚本
+    let output = Command::new("python3")
+        .args(&[
+            "tools/light_prune.py",
+            input_path.to_str().unwrap(),
+            output_path.to_str().unwrap(),
+            "--keep-ratio",
+            &keep_ratio.to_string(),
+            "--quiet",
+        ])
+        .output()
+        .map_err(|e| format!("执行剪枝脚本失败: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("剪枝脚本执行失败: {}", stderr));
+    }
+
+    // 获取输出文件大小
+    let output_size = std::fs::metadata(output_path)
+        .map_err(|e| format!("无法读取输出文件: {}", e))?
+        .len() as f32 / 1_000_000.0;
+
+    Ok(PruneStats {
+        input_size_mb: input_size,
+        output_size_mb: output_size,
+        compression_ratio: input_size / output_size,
+    })
 }

@@ -215,10 +215,11 @@ fn setup(
     info!("  ✓ 60Hz VSync锁定 (-15~25% GPU)");
     info!("  ✓ MSAA禁用 (Metal tile优化)");
     info!("  ✓ Metal后端强制启用");
+    info!("  ✓ LightGaussian自动剪枝 (50%压缩)");
     info!("");
     info!("💡 Metal GPU优化说明:");
-    info!("  所有优化均不影响渲染质量");
-    info!("  预计GPU占用降低: 30-50%");
+    info!("  上传图片后自动进行LightGaussian剪枝");
+    info!("  预计GPU占用降低: 50-70%");
 }
 
 fn auto_center_orbit_target(
@@ -418,6 +419,9 @@ fn update_status_display(
         },
         UploadStatus::Downloading { progress } => {
             info!("📥 下载PLY... {:.0}%", progress * 100.0);
+        },
+        UploadStatus::Pruning { progress } => {
+            info!("✂️  LightGaussian剪枝中... {:.0}%", progress * 100.0);
         },
         UploadStatus::Completed { ref ply_path, total_time } => {
             info!("✅ 完成！总耗时: {:.2}秒", total_time);
